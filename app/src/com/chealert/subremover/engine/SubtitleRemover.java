@@ -231,9 +231,15 @@ public final class SubtitleRemover {
         FrameReader behind = new FrameReader(ctx, src, info);
         Mp4Writer writer = new Mp4Writer(ctx, src, info, out);
         Plate fwd = new Plate(bw, bh), hal = new Plate(bw, bh);
+        SttnInpainter sttn = null;
         LamaInpainter lama = null;
-        boolean lamaFailed = false;
-        long pxF = 0, pxB = 0, pxH = 0, pxT = 0;
+        boolean sttnFailed = false, lamaFailed = false;
+        long pxF = 0, pxB = 0, pxS = 0, pxH = 0, pxT = 0;
+        try {
+            if (SttnInpainter.assetExists(ctx)) sttn = new SttnInpainter(ctx);
+        } catch (Throwable e) {
+            Log.w(TAG, "sttn unavailable, LaMa anchors", e);
+        }
         int lastLama = -1000, t = 0, segments = 1;
         Mat prevGray = null, prevSm = null, prevStroke = null;
         boolean ok3 = false;
@@ -285,28 +291,47 @@ public final class SubtitleRemover {
                     Core.bitwise_and(rem, hal.V, use);
                     pxH += take(hal.P, R, rem, use);
                     int left = Core.countNonZero(rem);
-                    if (left > Math.max(60, total * 0.03) && !lamaFailed
+                    if (left > Math.max(60, total * 0.03)
                             && (t - lastLama >= 15 || segChange || Core.countNonZero(hal.V) == 0)) {
-                        try {
-                            if (lama == null) lama = new LamaInpainter(ctx);
-                            Mat comp = full.clone();
-                            R.copyTo(comp.submat(band.y0, band.y1, 0, bw));
-                            Mat hole = Mat.zeros(full.size(), CvType.CV_8U);
-                            rem.copyTo(hole.submat(band.y0, band.y1, 0, bw));
-                            lama.inpaint(comp, hole);
-                            Mat fb = comp.submat(band.y0, band.y1, 0, bw);
-                            fb.copyTo(R, rem);
-                            fb.copyTo(hal.P, rem);
-                            hal.V.setTo(new Scalar(255), rem);
-                            hal.A.setTo(new Scalar(0), rem);
-                            pxH += left;
-                            rem.setTo(new Scalar(0));
-                            left = 0;
-                            lastLama = t;
-                            comp.release(); hole.release();
-                        } catch (Throwable e) {
-                            Log.w(TAG, "lama unavailable, Telea only", e);
-                            lamaFailed = true;
+                        boolean anchored = false;
+                        if (sttn != null && !sttnFailed) {
+                            try {
+                                anchorSttn(sttn, t, n, R, rem, bandJpg, sm, cut);
+                                R.copyTo(hal.P, rem);
+                                hal.V.setTo(new Scalar(255), rem);
+                                hal.A.setTo(new Scalar(0), rem);
+                                pxS += left;
+                                rem.setTo(new Scalar(0));
+                                left = 0;
+                                lastLama = t;
+                                anchored = true;
+                            } catch (Throwable e) {
+                                Log.w(TAG, "sttn failed, LaMa anchors", e);
+                                sttnFailed = true;
+                            }
+                        }
+                        if (!anchored && !lamaFailed) {
+                            try {
+                                if (lama == null) lama = new LamaInpainter(ctx);
+                                Mat comp = full.clone();
+                                R.copyTo(comp.submat(band.y0, band.y1, 0, bw));
+                                Mat hole = Mat.zeros(full.size(), CvType.CV_8U);
+                                rem.copyTo(hole.submat(band.y0, band.y1, 0, bw));
+                                lama.inpaint(comp, hole);
+                                Mat fb = comp.submat(band.y0, band.y1, 0, bw);
+                                fb.copyTo(R, rem);
+                                fb.copyTo(hal.P, rem);
+                                hal.V.setTo(new Scalar(255), rem);
+                                hal.A.setTo(new Scalar(0), rem);
+                                pxH += left;
+                                rem.setTo(new Scalar(0));
+                                left = 0;
+                                lastLama = t;
+                                comp.release(); hole.release();
+                            } catch (Throwable e) {
+                                Log.w(TAG, "lama unavailable, Telea only", e);
+                                lamaFailed = true;
+                            }
                         }
                     }
                     if (left > 0) {
@@ -339,16 +364,18 @@ public final class SubtitleRemover {
         } finally {
             behind.release();
             fwd.release(); hal.release();
+            if (sttn != null) sttn.close();
             if (lama != null) lama.close();
             if (!ok3) { writer.abort(); out.delete(); }
         }
         long tPass3 = System.currentTimeMillis() - t3;
         Log.w(TAG, String.format(Locale.US,
-                "frames=%d pass1(decode+detect+masks)=%dms pass2(backward)=%dms pass3(forward+encode)=%dms decode=%dms detect=%dms(%d) flow=%dms fill=%dms lama=%dms(%d calls) encode=%dms segments=%d",
+                "frames=%d pass1(decode+detect+masks)=%dms pass2(backward)=%dms pass3(forward+encode)=%dms decode=%dms detect=%dms(%d) flow=%dms fill=%dms sttn=%dms(%d calls) lama=%dms(%d calls) encode=%dms segments=%d",
                 t, tPass1, tPass2, tPass3, decodeNs / 1000000, det.ns / 1000000, det.calls, ff.ns / 1000000,
-                fillNs / 1000000, lama == null ? 0 : lama.ns / 1000000, lama == null ? 0 : lama.calls,
+                fillNs / 1000000, sttn == null ? 0 : sttn.ns / 1000000, sttn == null ? 0 : sttn.calls,
+                lama == null ? 0 : lama.ns / 1000000, lama == null ? 0 : lama.calls,
                 writer.encodeNs / 1000000, segments));
-        Log.w(TAG, "pixels fwdPlate=" + pxF + " bwdPlate=" + pxB + " lama=" + pxH + " telea=" + pxT);
+        Log.w(TAG, "pixels fwdPlate=" + pxF + " bwdPlate=" + pxB + " sttn=" + pxS + " lama=" + pxH + " telea=" + pxT);
 
         long t2 = System.currentTimeMillis();
         String name = "去字幕_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".mp4";
@@ -361,6 +388,49 @@ public final class SubtitleRemover {
         r.height = info.dispH;
         Log.w(TAG, "saved " + name + " save=" + (System.currentTimeMillis() - t2) + "ms total=" + r.ms + "ms");
         return r;
+    }
+
+    /**
+     * Anchor fill: 6 frames around {@code t} (inside the shot) plus 2 further references, native-resolution STTN
+     * tiles, pasted only onto the still-open hole of frame {@code t}.
+     */
+    private static void anchorSttn(SttnInpainter sttn, int t, int n, Mat R, Mat rem, List<byte[]> bandJpg,
+                                   StrokeMasker sm, List<Boolean> cut) throws Exception {
+        int L = t;
+        while (L > 0 && !cut.get(L)) L--;
+        int Rr = t;
+        while (Rr + 1 < n && !cut.get(Rr + 1)) Rr++;
+        int start = t - 2;
+        if (start < L) start = L;
+        if (start + 5 > Rr) start = Math.max(L, Rr - 5);
+        int[] ids = new int[SttnInpainter.T];
+        int target = 0;
+        for (int i = 0; i < 6; i++) {
+            ids[i] = Math.min(Rr, start + i);
+            if (ids[i] == t) target = i;
+        }
+        ids[6] = Math.max(L, t - 20);
+        ids[7] = Math.min(Rr, t + 20);
+        if (ids[target] != t) { ids[0] = t; target = 0; }
+        Mat[] frames = new Mat[SttnInpainter.T];
+        Mat[] holes = new Mat[SttnInpainter.T];
+        try {
+            for (int i = 0; i < ids.length; i++) {
+                if (i == target) { frames[i] = R; holes[i] = rem; continue; }
+                MatOfByte buf = new MatOfByte(bandJpg.get(ids[i]));
+                frames[i] = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
+                buf.release();
+                if (frames[i].empty()) throw new IllegalStateException("band decode " + ids[i]);
+                holes[i] = sm.mask(ids[i]);
+            }
+            sttn.inpaint(frames, holes, target);
+        } finally {
+            for (int i = 0; i < frames.length; i++) {
+                if (i == target) continue;
+                if (frames[i] != null) frames[i].release();
+                if (holes[i] != null) holes[i].release();
+            }
+        }
     }
 
     /** Copies src→dst where use, clears those pixels in rem; returns count. */

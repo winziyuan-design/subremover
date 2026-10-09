@@ -10,3 +10,6 @@ gen/
 *.aar
 *.pth
 *.mp4
+/vinp/
+sttn/train/fonts/
+__pycache__/
