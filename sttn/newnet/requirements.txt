@@ -1,0 +1,8 @@
+# GPU box: install torch/torchvision matching the CUDA driver first (https://pytorch.org/get-started/locally/), then:
+numpy
+opencv-python-headless>=4.8
+pillow
+onnx>=1.15
+onnxruntime>=1.17
+onnxconverter-common
+lpips          # optional, eval.py --lpips
