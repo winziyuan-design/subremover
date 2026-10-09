@@ -1,0 +1,12 @@
+build/
+dist/
+classes/
+gen/
+*.keystore
+*.apk
+*.so
+*.onnx
+*.mnn
+*.aar
+*.pth
+*.mp4
