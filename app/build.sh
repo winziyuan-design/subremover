@@ -3,7 +3,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 export JAVA_HOME=/workspace/jdk17; export PATH="$JAVA_HOME/bin:$PATH"
 SDK=/workspace/android-sdk; BT=$SDK/build-tools/35.0.0; JAR=$SDK/platforms/android-34/android.jar
-VERSION_CODE=4; VERSION_NAME=0.2.0
+VERSION_CODE=5; VERSION_NAME=0.3.0
 CV_JAR="$ROOT/libs/opencv-4.10.0.jar"; ORT_JAR="$ROOT/libs/onnxruntime-1.30.0.jar"
 cd "$ROOT"; rm -rf build gen classes; mkdir -p build/compiled gen classes dist
 "$BT/aapt2" compile --dir res -o build/compiled/res.zip

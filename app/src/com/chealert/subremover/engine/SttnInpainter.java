@@ -35,7 +35,7 @@ final class SttnInpainter {
     private static final int PIX = TH * TW;
 
     private final OrtEnvironment env = OrtEnvironment.getEnvironment();
-    private final OrtSession session;
+    private OrtSession session;
     private final float[] inF = new float[T * 3 * PIX], inM = new float[T * PIX], outF = new float[T * 3 * PIX];
     private final Mat dilK = Mat.ones(3, 3, CvType.CV_8U);
     long ns;
@@ -51,14 +51,27 @@ final class SttnInpainter {
 
     SttnInpainter(Context ctx) throws Exception {
         File f = new File(ctx.getFilesDir(), "sttn.onnx");
-        if (!f.exists() || f.length() == 0) {
+        // Re-extract after every app update so new weights replace the cached copy.
+        File stamp = new File(ctx.getFilesDir(), "sttn.onnx.stamp");
+        String want = String.valueOf(ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).lastUpdateTime);
+        String have = null;
+        if (stamp.isFile()) {
+            try (java.io.FileInputStream si = new java.io.FileInputStream(stamp)) {
+                byte[] sb = new byte[64];
+                int sn = si.read(sb);
+                have = sn > 0 ? new String(sb, 0, sn, "UTF-8") : null;
+            }
+        }
+        if (!f.exists() || f.length() == 0 || !want.equals(have)) {
             File tmp = new File(ctx.getFilesDir(), "sttn.onnx.part");
             try (InputStream in = ctx.getAssets().open("sttn.onnx"); OutputStream out = new FileOutputStream(tmp)) {
                 byte[] b = new byte[1 << 20];
                 int n;
                 while ((n = in.read(b)) > 0) out.write(b, 0, n);
             }
+            f.delete();
             tmp.renameTo(f);
+            try (OutputStream so = new FileOutputStream(stamp)) { so.write(want.getBytes("UTF-8")); }
         }
         try {
             session = open(f, true);
